@@ -12,7 +12,7 @@ export default function TranslatorPanel() {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   const speechSynthesisLangMap: Record<string, string> = {
     en: "en-US",
     hi: "hi-IN",
@@ -20,18 +20,17 @@ export default function TranslatorPanel() {
     mr: "mr-IN",
   };
 
-
   const speak = (text: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
     }
-  
+
     const synth = window.speechSynthesis;
     synth.cancel();
-  
-    const utterance = new window.SpeechSynthesisUtterance(text);
+
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = speechSynthesisLangMap[targetLanguage] || "en-US";
-  
+
     synth.speak(utterance);
   };
 
@@ -41,18 +40,20 @@ export default function TranslatorPanel() {
       setTranscript("");
       setTranslation("");
 
-      const speechKey = process.env.NEXT_PUBLIC_AZURE_SPEECH_KEY;
-      const speechRegion = process.env.NEXT_PUBLIC_AZURE_SPEECH_REGION;
+      const tokenResponse = await fetch("/api/speech-token");
 
-      if (!speechKey || !speechRegion) {
-        setError("Azure Speech credentials are missing.");
+      if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.json();
+        setError(errorData.error || "Failed to fetch speech token.");
         return;
       }
 
+      const { token, region } = await tokenResponse.json();
+
       const translationConfig =
-        SpeechSDK.SpeechTranslationConfig.fromSubscription(
-          speechKey,
-          speechRegion
+        SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(
+          token,
+          region
         );
 
       translationConfig.speechRecognitionLanguage = sourceLanguage;
@@ -76,23 +77,16 @@ export default function TranslatorPanel() {
       recognizer.recognized = (_sender, event) => {
         setIsProcessing(false);
 
-        console.log("RESULT:", event.result);
-        console.log("TEXT:", event.result.text);
-        console.log("REASON:", event.result.reason);
-        console.log("TRANSLATIONS:", event.result.translations);
-      
         setTranscript(event.result.text || "");
-      
+
         const translatedText =
           event.result.translations?.get(targetLanguage) || "";
-      
-        console.log("TARGET LANGUAGE:", targetLanguage);
-        console.log("TRANSLATED TEXT:", translatedText);
-      
+
         setTranslation(translatedText);
+
         if (translatedText) {
-            speak(translatedText);
-          }
+          speak(translatedText);
+        }
       };
 
       recognizer.canceled = (_sender, event) => {
@@ -121,10 +115,10 @@ export default function TranslatorPanel() {
 
   const stopTranslation = () => {
     setIsProcessing(false);
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-    }
 
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
 
     const recognizer = (
       window as Window & { __recognizer?: SpeechSDK.TranslationRecognizer }
@@ -172,9 +166,7 @@ export default function TranslatorPanel() {
         {isListening ? "Stop" : "Start"}
       </button>
 
-      {isProcessing && (
-      <p style={{ color: "green" }}>Listening...</p>
-      )}
+      {isProcessing && <p style={{ color: "green" }}>Listening...</p>}
 
       <div>
         <h3>Transcript</h3>
